@@ -1,9 +1,8 @@
 import { SectionWrapper } from "../layout/SectionWrapper";
 import type { WrapData } from "../../types";
-import { motion } from "framer-motion";
 import { toPng } from "html-to-image";
 import { useRef, useState } from "react";
-import { Download, Share2, ExternalLink } from "lucide-react";
+import { Download, ExternalLink } from "lucide-react";
 import baranProfile from "../../assets/baran.jpg";
 
 interface SummarySectionProps {
@@ -41,13 +40,14 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
         {/* The Card */}
         <div 
           ref={cardRef}
-          className="bg-[#0B0D10] w-[350px] md:w-[400px] aspect-[4/5] p-8 rounded-3xl border border-white/10 relative overflow-hidden flex flex-col justify-between shadow-2xl"
+          className="bg-[#0B0D10] w-[350px] md:w-[400px] aspect-[4/5] md:aspect-[4/4.2] p-8 rounded-3xl border border-white/10 relative overflow-hidden 
+          flex flex-col shadow-2xl justify-between"
         >
           {/* Background decoration for the card */}
           <div className="absolute top-0 right-0 w-64 h-64 bg-accentDefault/20 rounded-full blur-[80px]" />
           <div className="absolute bottom-0 left-0 w-64 h-64 bg-accentJS/10 rounded-full blur-[80px]" />
 
-          <div className="relative z-10">
+          <div className="relative z-10  flex flex-col min-h-0">
              <div className="flex items-center gap-4 mb-6">
                 <img src={data.user.avatar_url} className="w-16 h-16 rounded-full border border-white/20" />
                 <div>
@@ -56,7 +56,7 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
                 </div>
              </div>
 
-             <div className="space-y-6">
+             <div className="space-y-6 ">
                 <div>
                    <div className="text-sm text-textSecondary uppercase tracking-widest mb-1">Total Contributions</div>
                    <div className="text-5xl font-black font-display leading-none">{data.stats.totalCommits.toLocaleString()}</div>
@@ -102,14 +102,18 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
                         }
                         
                         return last20Days.map((day, i) => {
-                          const opacity = day.count > 0 
-                            ? Math.min(0.3 + (day.count / 10) * 0.5, 1) 
-                            : 0.1;
+                          const intensity = day.count > 0 
+                            ? Math.min(0.4 + (day.count / 10) * 0.6, 1) 
+                            : 0.15;
                           return (
                             <div 
                               key={i} 
-                              className="flex-1 rounded-sm bg-white/30" 
-                              style={{ opacity }} 
+                              className="flex-1 rounded-sm" 
+                              style={{ 
+                                backgroundColor: day.count > 0 
+                                  ? `rgba(124, 124, 255, ${intensity})` 
+                                  : 'rgba(255, 255, 255, 0.1)'
+                              }} 
                               title={day.count > 0 ? `${day.count} contributions on ${day.date}` : 'No contributions'}
                             />
                           );
@@ -120,7 +124,8 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
              </div>
           </div>
 
-          <div className="relative z-10 flex justify-between items-end mt-8">
+
+          <div className="relative z-10 flex justify-between items-end gap-4">
             <div className="text-2xl font-display font-black tracking-tighter whitespace-nowrap">
               GITHUB WRAP
             </div>
@@ -142,17 +147,20 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
         </div>
 
         {/* Footer with links */}
-        <div className="mt-16 pt-8 border-t border-white/10 w-full max-w-2xl">
+        <div className="mt-8 pt-8 border-t border-white/10 w-full max-w-2xl">
           <div className="flex flex-col md:flex-row items-center justify-center gap-6 md:gap-8">
             <div className="flex items-center gap-4">
-              <img 
-                src={baranProfile} 
-                alt="Baran Dogan" 
-                className="w-12 h-12 rounded-full border border-white/20 object-cover"
-              />
+              <div className="w-12 h-12 rounded-full border border-white/20 overflow-hidden">
+                <img 
+                  src={baranProfile} 
+                  alt="Baran Dogan" 
+                  className="w-full h-full object-cover"
+                  style={{ transform: 'scale(1.5)', objectPosition: 'center 95%' }}
+                />
+              </div>
               <div className="text-sm text-textSecondary">
                 <p className="font-semibold text-white">Y. Baran Dogan</p>
-                <p>Frontend Developer</p>
+                <p>Developer</p>
               </div>
             </div>
             
