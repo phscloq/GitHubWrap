@@ -101,20 +101,9 @@ export const Wrap = () => {
                 <li className="flex items-start gap-2">
                   <span className="text-yellow-400">•</span>
                   <span>
-                    Use a GitHub Personal Access Token to increase your limit to 5,000 requests/hour.
-                    <a
-                      href="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-yellow-400 hover:text-yellow-300 ml-1 inline-flex items-center gap-1"
-                    >
-                      Learn more <ExternalLink size={14} />
-                    </a>
+                    The backend server uses a GitHub token to increase the rate limit to 5,000 requests/hour.
+                    If you're self-hosting, configure the token on the server side (see DEPLOYMENT.md).
                   </span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-yellow-400">•</span>
-                  <span>Set <code className="bg-white/5 px-1 py-0.5 rounded text-xs">VITE_GITHUB_TOKEN</code> in your environment variables</span>
                 </li>
               </ul>
             </div>

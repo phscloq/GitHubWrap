@@ -1,12 +1,10 @@
-import { Octokit } from "octokit";
 import type { GitHubUser, GitHubRepo, ContributionYear, WrapData, LanguageParam } from "../types";
 import { GitHubAPIError } from "../utils/errors";
 
-// Initialize Octokit with optional token from environment
-// Token increases rate limit from 60/hour to 5,000/hour
-const octokit = new Octokit({
-  auth: import.meta.env.VITE_GITHUB_TOKEN || undefined,
-});
+// Backend API URL - token is handled server-side securely
+// For Vercel: uses /api routes (serverless functions)
+// For local dev: uses backend server on port 3001
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '/api');
 
 // Retry configuration
 const MAX_RETRIES = 3;
@@ -30,42 +28,31 @@ const getRetryAfter = (headers: Record<string, string>): number | undefined => {
 const handleAPIError = (error: any, operation: string): GitHubAPIError => {
   const status = error.status || error.response?.status || 500;
   const headers = error.response?.headers || {};
+  const retryAfter = error.retryAfter || getRetryAfter(headers);
   
   // Rate limit errors (403 or 429)
-  if (status === 403 || status === 429) {
-    const retryAfter = getRetryAfter(headers);
-    const rateLimitRemaining = headers['x-ratelimit-remaining'];
-    
-    if (rateLimitRemaining === '0' || status === 429) {
-      return new GitHubAPIError(
-        `GitHub API rate limit exceeded. ${retryAfter ? `Please try again in ${Math.ceil((retryAfter || 0) / 1000)} seconds.` : 'Please try again later.'} ${!import.meta.env.VITE_GITHUB_TOKEN ? 'Consider using a GitHub Personal Access Token to increase your rate limit.' : ''}`,
-        status,
-        'rate_limit',
-        retryAfter
-      );
-    }
-    
+  if (status === 403 || status === 429 || error.error === 'rate_limit') {
     return new GitHubAPIError(
-      `Access forbidden. This may be due to rate limiting or insufficient permissions. ${!import.meta.env.VITE_GITHUB_TOKEN ? 'Consider using a GitHub Personal Access Token.' : ''}`,
+      error.message || `GitHub API rate limit exceeded. ${retryAfter ? `Please try again in ${Math.ceil((retryAfter || 0) / 1000)} seconds.` : 'Please try again later.'}`,
       status,
-      'forbidden',
+      'rate_limit',
       retryAfter
     );
   }
   
   // Not found errors
-  if (status === 404) {
+  if (status === 404 || error.error === 'not_found') {
     return new GitHubAPIError(
-      `User or resource not found. Please check the username and try again.`,
+      error.message || `User or resource not found. Please check the username and try again.`,
       status,
       'not_found'
     );
   }
   
   // Server errors
-  if (status >= 500) {
+  if (status >= 500 || error.error === 'server_error') {
     return new GitHubAPIError(
-      `GitHub API server error. Please try again later.`,
+      error.message || `GitHub API server error. Please try again later.`,
       status,
       'server_error'
     );
@@ -73,10 +60,39 @@ const handleAPIError = (error: any, operation: string): GitHubAPIError => {
   
   // Unknown errors
   return new GitHubAPIError(
-    `Failed to ${operation}: ${error.message || 'Unknown error'}`,
+    error.message || `Failed to ${operation}: ${error.message || 'Unknown error'}`,
     status,
     'unknown'
   );
+};
+
+// Helper function to make API requests to backend proxy
+const apiRequest = async <T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> => {
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw {
+      status: response.status,
+      response: {
+        status: response.status,
+        headers: Object.fromEntries(response.headers.entries()),
+      },
+      message: errorData.message || response.statusText,
+      ...errorData,
+    };
+  }
+
+  return response.json();
 };
 
 // Retry wrapper for API calls
@@ -125,27 +141,21 @@ const CONTRIBUTION_API = "https://github-contributions-api.jogruber.de/v4";
 
 export const fetchProfile = async (username: string): Promise<GitHubUser> => {
   return withRetry(async () => {
-    const { data } = await octokit.request("GET /users/{username}", {
-      username,
-    });
-    return data as GitHubUser;
+    return await apiRequest<GitHubUser>(`/api/user/${username}`);
   }, `fetch profile for ${username}`);
 };
 
 export const fetchRepoLanguages = async (username: string, repo: string): Promise<LanguageParam[]> => {
   return withRetry(async () => {
-    const { data } = await octokit.request("GET /repos/{owner}/{repo}/languages", {
-      owner: username,
-      repo,
-    });
+    const data = await apiRequest<Record<string, number>>(`/api/repos/${username}/${repo}/languages`);
     
-    const total = Object.values(data).reduce((a, b) => a + (b as number), 0);
+    const total = Object.values(data).reduce((a, b) => a + b, 0);
     
     return Object.entries(data).map(([name, bytes]) => ({
       name,
-      value: bytes as number,
+      value: bytes,
       color: getLanguageColor(name),
-      percentage: Math.round(((bytes as number) / total) * 100)
+      percentage: Math.round((bytes / total) * 100)
     })).sort((a, b) => b.value - a.value);
   }, `fetch languages for ${username}/${repo}`);
 };
@@ -153,14 +163,7 @@ export const fetchRepoLanguages = async (username: string, repo: string): Promis
 export const fetchRepos = async (username: string): Promise<GitHubRepo[]> => {
   return withRetry(async () => {
     // Fetch top 100 repos sorted by updated to get recent activity
-    // We might want to fetch all to get accurate language stats, but 100 is a safe start for unauthenticated
-    const { data } = await octokit.request("GET /users/{username}/repos", {
-      username,
-      sort: "pushed",
-      per_page: 100,
-      type: "all", // "all", "owner", "member"
-    });
-    return data as GitHubRepo[];
+    return await apiRequest<GitHubRepo[]>(`/api/user/${username}/repos?sort=pushed&per_page=100&type=all`);
   }, `fetch repos for ${username}`);
 };
 

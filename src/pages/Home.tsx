@@ -6,7 +6,6 @@ import { Github } from "lucide-react";
 export const Home = () => {
   const [username, setUsername] = useState("");
   const navigate = useNavigate();
-  const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
