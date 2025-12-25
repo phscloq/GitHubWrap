@@ -1,81 +1,217 @@
 import { Octokit } from "octokit";
 import type { GitHubUser, GitHubRepo, ContributionYear, WrapData, LanguageParam } from "../types";
+import { GitHubAPIError } from "../utils/errors";
 
-const octokit = new Octokit();
+// Initialize Octokit with optional token from environment
+// Token increases rate limit from 60/hour to 5,000/hour
+const octokit = new Octokit({
+  auth: import.meta.env.VITE_GITHUB_TOKEN || undefined,
+});
+
+// Retry configuration
+const MAX_RETRIES = 3;
+const INITIAL_RETRY_DELAY = 1000; // 1 second
+
+// Helper function to wait
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Helper function to parse rate limit headers and calculate retry delay
+const getRetryAfter = (headers: Record<string, string>): number | undefined => {
+  const retryAfter = headers['retry-after'] || headers['x-ratelimit-reset'];
+  if (retryAfter) {
+    const resetTime = parseInt(retryAfter, 10);
+    const now = Math.floor(Date.now() / 1000);
+    return Math.max(0, (resetTime - now) * 1000); // Convert to milliseconds
+  }
+  return undefined;
+};
+
+// Helper function to handle API errors
+const handleAPIError = (error: any, operation: string): GitHubAPIError => {
+  const status = error.status || error.response?.status || 500;
+  const headers = error.response?.headers || {};
+  
+  // Rate limit errors (403 or 429)
+  if (status === 403 || status === 429) {
+    const retryAfter = getRetryAfter(headers);
+    const rateLimitRemaining = headers['x-ratelimit-remaining'];
+    
+    if (rateLimitRemaining === '0' || status === 429) {
+      return new GitHubAPIError(
+        `GitHub API rate limit exceeded. ${retryAfter ? `Please try again in ${Math.ceil((retryAfter || 0) / 1000)} seconds.` : 'Please try again later.'} ${!import.meta.env.VITE_GITHUB_TOKEN ? 'Consider using a GitHub Personal Access Token to increase your rate limit.' : ''}`,
+        status,
+        'rate_limit',
+        retryAfter
+      );
+    }
+    
+    return new GitHubAPIError(
+      `Access forbidden. This may be due to rate limiting or insufficient permissions. ${!import.meta.env.VITE_GITHUB_TOKEN ? 'Consider using a GitHub Personal Access Token.' : ''}`,
+      status,
+      'forbidden',
+      retryAfter
+    );
+  }
+  
+  // Not found errors
+  if (status === 404) {
+    return new GitHubAPIError(
+      `User or resource not found. Please check the username and try again.`,
+      status,
+      'not_found'
+    );
+  }
+  
+  // Server errors
+  if (status >= 500) {
+    return new GitHubAPIError(
+      `GitHub API server error. Please try again later.`,
+      status,
+      'server_error'
+    );
+  }
+  
+  // Unknown errors
+  return new GitHubAPIError(
+    `Failed to ${operation}: ${error.message || 'Unknown error'}`,
+    status,
+    'unknown'
+  );
+};
+
+// Retry wrapper for API calls
+const withRetry = async <T>(
+  operation: () => Promise<T>,
+  operationName: string,
+  retries = MAX_RETRIES
+): Promise<T> => {
+  let lastError: GitHubAPIError | null = null;
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      const apiError = handleAPIError(error, operationName);
+      lastError = apiError;
+      
+      // Only retry on rate limit errors or server errors
+      if (apiError.type === 'rate_limit' || apiError.type === 'server_error') {
+        if (attempt < retries) {
+          // Calculate delay: exponential backoff with jitter
+          const baseDelay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
+          const jitter = Math.random() * 1000; // Add random jitter up to 1 second
+          const delay = apiError.retryAfter 
+            ? Math.min(apiError.retryAfter, baseDelay + jitter)
+            : baseDelay + jitter;
+          
+          console.warn(
+            `${operationName} failed (attempt ${attempt + 1}/${retries + 1}). Retrying in ${Math.ceil(delay / 1000)}s...`
+          );
+          await wait(delay);
+          continue;
+        }
+      }
+      
+      // Don't retry for other errors (not found, forbidden without rate limit, etc.)
+      throw apiError;
+    }
+  }
+  
+  throw lastError || new GitHubAPIError(`Failed to ${operationName} after ${retries + 1} attempts`, 500, 'unknown');
+};
 
 // External API for contribution calendar (no auth needed)
 const CONTRIBUTION_API = "https://github-contributions-api.jogruber.de/v4";
 
 export const fetchProfile = async (username: string): Promise<GitHubUser> => {
-  const { data } = await octokit.request("GET /users/{username}", {
-    username,
-  });
-  return data as GitHubUser;
+  return withRetry(async () => {
+    const { data } = await octokit.request("GET /users/{username}", {
+      username,
+    });
+    return data as GitHubUser;
+  }, `fetch profile for ${username}`);
 };
 
 export const fetchRepoLanguages = async (username: string, repo: string): Promise<LanguageParam[]> => {
-  const { data } = await octokit.request("GET /repos/{owner}/{repo}/languages", {
-    owner: username,
-    repo,
-  });
-  
-  const total = Object.values(data).reduce((a, b) => a + (b as number), 0);
-  
-  return Object.entries(data).map(([name, bytes]) => ({
-    name,
-    value: bytes as number,
-    color: getLanguageColor(name),
-    percentage: Math.round(((bytes as number) / total) * 100)
-  })).sort((a, b) => b.value - a.value);
+  return withRetry(async () => {
+    const { data } = await octokit.request("GET /repos/{owner}/{repo}/languages", {
+      owner: username,
+      repo,
+    });
+    
+    const total = Object.values(data).reduce((a, b) => a + (b as number), 0);
+    
+    return Object.entries(data).map(([name, bytes]) => ({
+      name,
+      value: bytes as number,
+      color: getLanguageColor(name),
+      percentage: Math.round(((bytes as number) / total) * 100)
+    })).sort((a, b) => b.value - a.value);
+  }, `fetch languages for ${username}/${repo}`);
 };
 
 export const fetchRepos = async (username: string): Promise<GitHubRepo[]> => {
-  // Fetch top 100 repos sorted by updated to get recent activity
-  // We might want to fetch all to get accurate language stats, but 100 is a safe start for unauthenticated
-  const { data } = await octokit.request("GET /users/{username}/repos", {
-    username,
-    sort: "pushed",
-    per_page: 100,
-    type: "all", // "all", "owner", "member"
-  });
-  return data as GitHubRepo[];
+  return withRetry(async () => {
+    // Fetch top 100 repos sorted by updated to get recent activity
+    // We might want to fetch all to get accurate language stats, but 100 is a safe start for unauthenticated
+    const { data } = await octokit.request("GET /users/{username}/repos", {
+      username,
+      sort: "pushed",
+      per_page: 100,
+      type: "all", // "all", "owner", "member"
+    });
+    return data as GitHubRepo[];
+  }, `fetch repos for ${username}`);
 };
 
 export const fetchContributions = async (username: string, year?: number): Promise<ContributionYear> => {
-  const response = await fetch(`${CONTRIBUTION_API}/${username}?y=${year || "last"}`);
-  if (!response.ok) {
-    throw new Error("Failed to fetch contributions");
-  }
-  const data = await response.json();
-  
-  // The API returns { total: { [year]: number }, contributions: Day[] } or similar structure
-  // Need to adapt based on actual response.
-  // The v4 API returns: { total: { "2024": 123 }, contributions: [ { date, count, level } ] }
-  // Wait, v4 returns object with years.
-  
-  // Let's assume we want the current year or the requested year.
-  // The API structure: 
-  // {
-  //   contributions: [ { date, count, level }... ], // all years flat or structured?
-  //   // Actually v4 returns: { contributions: [ ... all days ... ] }?
-  //   // Let's check documentation or assume response structure from common usage.
-  //   // Documentation says: GET /v4/:username?y=2024
-  // }
-  
-  // If we assume the response matches, we map it.
-  
-  // Safety: If exact shape unknown, we type loosely first.
-  const anyData = data as any;
-  
-  return {
-    year: year || new Date().getFullYear(),
-    total: anyData.total?.[year || new Date().getFullYear()] || 0,
-    range: { start: "", end: "" }, // API might not strictly provide this, we compute
-    contributions: anyData.contributions || []
-  };
+  return withRetry(async () => {
+    const response = await fetch(`${CONTRIBUTION_API}/${username}?y=${year || "last"}`);
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new GitHubAPIError(
+          `Contributions data not found for user ${username}`,
+          404,
+          'not_found'
+        );
+      }
+      throw new GitHubAPIError(
+        `Failed to fetch contributions: ${response.statusText}`,
+        response.status,
+        response.status >= 500 ? 'server_error' : 'unknown'
+      );
+    }
+    const data = await response.json();
+    
+    // The API returns { total: { [year]: number }, contributions: Day[] } or similar structure
+    // Need to adapt based on actual response.
+    // The v4 API returns: { total: { "2024": 123 }, contributions: [ { date, count, level } ] }
+    // Wait, v4 returns object with years.
+    
+    // Let's assume we want the current year or the requested year.
+    // The API structure: 
+    // {
+    //   contributions: [ { date, count, level }... ], // all years flat or structured?
+    //   // Actually v4 returns: { contributions: [ ... all days ... ] }?
+    //   // Let's check documentation or assume response structure from common usage.
+    //   // Documentation says: GET /v4/:username?y=2024
+    // }
+    
+    // If we assume the response matches, we map it.
+    
+    // Safety: If exact shape unknown, we type loosely first.
+    const anyData = data as any;
+    
+    return {
+      year: year || new Date().getFullYear(),
+      total: anyData.total?.[year || new Date().getFullYear()] || 0,
+      range: { start: "", end: "" }, // API might not strictly provide this, we compute
+      contributions: anyData.contributions || []
+    };
+  }, `fetch contributions for ${username}`);
 };
 
-export const calculateLanguages = async (repos: GitHubRepo[], username: string): Promise<LanguageParam[]> => {
+export const calculateLanguages = async (repos: GitHubRepo[]): Promise<LanguageParam[]> => {
   // Aggregate language usage from repos
   // Priority: Use detailed language stats when available, otherwise use heuristics
   const languageWeights: Record<string, number> = {};
@@ -150,11 +286,30 @@ const getLanguageColor = (lang: string) => {
 
 export const fetchWrapData = async (username: string): Promise<WrapData> => {
   const currentYear = 2025; // Updated to 2025 per feedback
-  const [user, repos, contributions] = await Promise.all([
-    fetchProfile(username),
-    fetchRepos(username),
-    fetchContributions(username, currentYear)
-  ]);
+  
+  // Fetch data in parallel, but handle errors gracefully
+  // If one fails, we'll get a proper error message
+  let user: GitHubUser;
+  let repos: GitHubRepo[];
+  let contributions: ContributionYear;
+  
+  try {
+    [user, repos, contributions] = await Promise.all([
+      fetchProfile(username),
+      fetchRepos(username),
+      fetchContributions(username, currentYear)
+    ]);
+  } catch (error) {
+    // Re-throw with context
+    if (error instanceof GitHubAPIError) {
+      throw error;
+    }
+    throw new GitHubAPIError(
+      `Failed to fetch data for ${username}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      500,
+      'unknown'
+    );
+  }
   
   // Calculate basic stats
   const busyMap: Record<string, number> = {};
@@ -195,7 +350,7 @@ export const fetchWrapData = async (username: string): Promise<WrapData> => {
   const finalRepos = [...topReposWithLanguages, ...sortedRepos.slice(3)];
   
   // Calculate languages AFTER repos are enriched with detailed stats
-  const languages = await calculateLanguages(finalRepos, username);
+  const languages = await calculateLanguages(finalRepos);
 
   return {
     user,
