@@ -11,7 +11,7 @@ import { LanguagesSection } from "../components/visualization/LanguagesSection";
 import { ReposSection } from "../components/visualization/ReposSection";
 import { AchievementsSection } from "../components/visualization/AchievementsSection";
 import { SummarySection } from "../components/visualization/SummarySection";
-import { AlertCircle, RefreshCw, ExternalLink } from "lucide-react";
+import { AlertCircle, RefreshCw } from "lucide-react";
 
 export const Wrap = () => {
   const { username } = useParams<{ username: string }>();
