@@ -66,3 +66,6 @@ export interface WrapData {
     busiestDay: string;
   };
 }
+
+// Re-export error type for convenience
+export type { GitHubAPIError } from '../utils/errors';
