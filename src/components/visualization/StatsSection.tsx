@@ -1,6 +1,6 @@
 import { SectionWrapper } from "../layout/SectionWrapper";
 import type { WrapData } from "../../types";
-import { motion, useSpring, useInView } from "framer-motion";
+import { useSpring, useInView } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 
 interface StatsSectionProps {

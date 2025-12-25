@@ -1,7 +1,7 @@
 import { SectionWrapper } from "../layout/SectionWrapper";
 import type { WrapData } from "../../types";
 import { motion } from "framer-motion";
-import { Star, GitBranch } from "lucide-react";
+import { Star } from "lucide-react";
 
 interface ReposSectionProps {
   data: WrapData;

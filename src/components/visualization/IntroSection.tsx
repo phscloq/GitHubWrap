@@ -1,5 +1,5 @@
 import { SectionWrapper } from "../layout/SectionWrapper";
-import { motion, useScroll, useTransform } from "framer-motion";
+import { motion } from "framer-motion";
 import type { WrapData } from "../../types";
 
 interface IntroSectionProps {
