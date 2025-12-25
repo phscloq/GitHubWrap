@@ -60,18 +60,21 @@ const handleError = (error) => {
 };
 
 export default async function handler(req, res) {
+  // CORS: On Vercel, frontend and API are same domain, so allow same origin
   const origin = req.headers.origin;
-  const allowedOrigins = process.env.FRONTEND_URL 
-    ? [process.env.FRONTEND_URL]
-    : ['http://localhost:5173'];
   
-  if (origin && allowedOrigins.some(allowed => {
-    const cleanAllowed = allowed.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    const cleanOrigin = origin.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    return cleanOrigin === cleanAllowed || cleanOrigin.includes(cleanAllowed);
-  })) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
+  if (origin) {
+    // Allow same origin (Vercel) or configured FRONTEND_URL
+    const host = req.headers.host;
+    const isSameOrigin = origin.includes(host);
+    const isConfigured = process.env.FRONTEND_URL && origin.includes(new URL(process.env.FRONTEND_URL).hostname);
+    
+    if (isSameOrigin || isConfigured) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    }
   }
+  // If no origin header, it's a same-origin request (no CORS needed)
+  
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 

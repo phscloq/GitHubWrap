@@ -63,19 +63,21 @@ const handleError = (error) => {
 };
 
 export default async function handler(req, res) {
-  // Set CORS headers
+  // CORS: On Vercel, frontend and API are same domain, so allow same origin
   const origin = req.headers.origin;
-  const allowedOrigins = process.env.FRONTEND_URL 
-    ? [process.env.FRONTEND_URL]
-    : ['http://localhost:5173'];
   
-  if (origin && allowedOrigins.some(allowed => {
-    const cleanAllowed = allowed.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    const cleanOrigin = origin.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    return cleanOrigin === cleanAllowed || cleanOrigin.includes(cleanAllowed);
-  })) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
+  if (origin) {
+    // Allow same origin (Vercel) or configured FRONTEND_URL
+    const host = req.headers.host;
+    const isSameOrigin = origin.includes(host);
+    const isConfigured = process.env.FRONTEND_URL && origin.includes(new URL(process.env.FRONTEND_URL).hostname);
+    
+    if (isSameOrigin || isConfigured) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    }
   }
+  // If no origin header, it's a same-origin request (no CORS needed)
+  
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -91,7 +93,10 @@ export default async function handler(req, res) {
     const { username } = req.query;
     
     if (!username) {
-      return res.status(400).json({ error: 'Username is required' });
+      return res.status(400).json({ 
+        error: 'Username is required',
+        debug: { query: req.query, url: req.url }
+      });
     }
 
     const { data } = await octokit.request('GET /users/{username}', {
@@ -100,6 +105,7 @@ export default async function handler(req, res) {
     
     return res.status(200).json(data);
   } catch (error) {
+    console.error('Error fetching user:', error);
     const errorResponse = handleError(error);
     return res.status(errorResponse.status).json(errorResponse.body);
   }
