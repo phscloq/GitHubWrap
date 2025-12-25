@@ -2,7 +2,7 @@ import { SectionWrapper } from "../layout/SectionWrapper";
 import type { WrapData } from "../../types";
 import { toPng } from "html-to-image";
 import { useRef, useState } from "react";
-import { Download, ExternalLink } from "lucide-react";
+import { Download, ExternalLink, Share2, Twitter } from "lucide-react";
 import baranProfile from "../../assets/baran.jpg";
 
 interface SummarySectionProps {
@@ -28,6 +28,71 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
         setIsGenerating(false);
       }
     }
+  };
+
+  const getShareText = () => {
+    const url = window.location.href;
+    const topLanguage = data.stats.topLanguages[0]?.name || "Code";
+    return `🚀 My 2025 GitHub Wrap! 
+
+📊 ${data.stats.totalCommits.toLocaleString()} contributions
+💻 Top language: ${topLanguage}
+📅 Busiest month: ${data.stats.busiestMonth}
+
+Check out my GitHub year: ${url}`;
+  };
+
+  const handleNativeShare = async () => {
+    const shareText = getShareText();
+
+    // Try to share image if available
+    let files: File[] = [];
+    if (cardRef.current) {
+      try {
+        const dataUrl = await toPng(cardRef.current, { cacheBust: true, pixelRatio: 2 });
+        const blob = await fetch(dataUrl).then(r => r.blob());
+        const file = new File([blob], `github-wrap-${data.user.login}.png`, { type: 'image/png' });
+        files = [file];
+      } catch (err) {
+        console.error('Failed to generate image for share:', err);
+      }
+    }
+
+    if (navigator.share) {
+      try {
+        const shareData: ShareData = {
+          title: `My 2025 GitHub Wrap - @${data.user.login}`,
+          text: shareText,
+          url: window.location.href,
+        };
+
+        // Add file if available (some platforms support it)
+        if (files.length > 0 && navigator.canShare && navigator.canShare({ files })) {
+          shareData.files = files;
+        }
+
+        await navigator.share(shareData);
+      } catch (err) {
+        // User cancelled or share failed
+        if ((err as Error).name !== 'AbortError') {
+          console.error('Share failed:', err);
+        }
+      }
+    }
+  };
+
+  const handleTwitterShare = () => {
+    const shareText = getShareText();
+    const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
+    window.open(twitterUrl, '_blank', 'width=550,height=420');
+  };
+
+  const isMobile = () => {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  };
+
+  const canUseNativeShare = () => {
+    return navigator.share !== undefined;
   };
 
   return (
@@ -125,7 +190,7 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
           </div>
 
 
-          <div className="relative z-10 flex justify-between items-end gap-4">
+          <div className="relative z-10 flex flex-col md:flex-row justify-between items-end gap-4">
             <div className="text-2xl font-display font-black tracking-tighter whitespace-nowrap">
               GITHUB WRAP
             </div>
@@ -135,15 +200,40 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
           </div>
         </div>
 
-        <div className="flex gap-4 mt-12">
+        <div className="flex flex-wrap gap-4 mt-12 justify-center">
            <button 
              onClick={handleDownload}
              disabled={isGenerating}
-             className="flex items-center gap-2 px-8 py-4 bg-white text-black rounded-full font-bold hover:bg-gray-200 transition-colors disabled:opacity-50"
+             className="flex items-center gap-2 px-6 md:px-8 py-4 bg-white text-black rounded-full font-bold hover:bg-gray-200 transition-colors disabled:opacity-50"
            >
              <Download size={20} />
-             {isGenerating ? "Exporting..." : "Download Image"}
+             <span className="hidden sm:inline">{isGenerating ? "Exporting..." : "Download Image"}</span>
+             <span className="sm:hidden">{isGenerating ? "Exporting..." : "Download"}</span>
            </button>
+
+           {/* Native Share Button (Mobile) */}
+           {canUseNativeShare() && (
+             <button
+               onClick={handleNativeShare}
+               className="flex items-center gap-2 px-6 md:px-8 py-4 bg-accentDefault text-white rounded-full font-bold hover:bg-accentDefault/90 transition-colors"
+             >
+               <Share2 size={20} />
+               <span className="hidden sm:inline">Share</span>
+               <span className="sm:hidden">Share</span>
+             </button>
+           )}
+
+           {/* Twitter Share Button (Desktop fallback or always show on desktop) */}
+           {(!canUseNativeShare() || !isMobile()) && (
+             <button
+               onClick={handleTwitterShare}
+               className="flex items-center gap-2 px-6 md:px-8 py-4 bg-[#1DA1F2] text-white rounded-full font-bold hover:bg-[#1a8cd8] transition-colors"
+             >
+               <Twitter size={20} />
+               <span className="hidden sm:inline">Share on Twitter</span>
+               <span className="sm:hidden">Twitter</span>
+             </button>
+           )}
         </div>
 
         {/* Footer with links */}
