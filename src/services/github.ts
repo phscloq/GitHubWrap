@@ -141,13 +141,13 @@ const CONTRIBUTION_API = "https://github-contributions-api.jogruber.de/v4";
 
 export const fetchProfile = async (username: string): Promise<GitHubUser> => {
   return withRetry(async () => {
-    return await apiRequest<GitHubUser>(`/api/user/${username}`);
+    return await apiRequest<GitHubUser>(`/user/${username}`);
   }, `fetch profile for ${username}`);
 };
 
 export const fetchRepoLanguages = async (username: string, repo: string): Promise<LanguageParam[]> => {
   return withRetry(async () => {
-    const data = await apiRequest<Record<string, number>>(`/api/repos/${username}/${repo}/languages`);
+    const data = await apiRequest<Record<string, number>>(`/repos/${username}/${repo}/languages`);
     
     const total = Object.values(data).reduce((a, b) => a + b, 0);
     
@@ -163,7 +163,7 @@ export const fetchRepoLanguages = async (username: string, repo: string): Promis
 export const fetchRepos = async (username: string): Promise<GitHubRepo[]> => {
   return withRetry(async () => {
     // Fetch top 100 repos sorted by updated to get recent activity
-    return await apiRequest<GitHubRepo[]>(`/api/user/${username}/repos?sort=pushed&per_page=100&type=all`);
+    return await apiRequest<GitHubRepo[]>(`/user/${username}/repos?sort=pushed&per_page=100&type=all`);
   }, `fetch repos for ${username}`);
 };
 
