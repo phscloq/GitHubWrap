@@ -1,10 +1,10 @@
 import type { GitHubUser, GitHubRepo, ContributionYear, WrapData, LanguageParam } from "../types";
 import { GitHubAPIError } from "../utils/errors";
 
-// Backend API URL - token is handled server-side securely
-// For Vercel: uses /api routes (serverless functions)
-// For local dev: uses backend server on port 3001
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '/api');
+// Backend API URL - uses Vercel serverless functions
+// In production: automatically uses /api routes (same domain)
+// For local testing: use `vercel dev` to run serverless functions locally
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 // Retry configuration
 const MAX_RETRIES = 3;

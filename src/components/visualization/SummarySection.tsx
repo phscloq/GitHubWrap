@@ -130,7 +130,7 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
               GITHUB WRAP
             </div>
             <div className="text-xs text-textSecondary text-right">
-              github-wrap.vercel.app
+              githubwrap25.vercel.app
             </div>
           </div>
         </div>
