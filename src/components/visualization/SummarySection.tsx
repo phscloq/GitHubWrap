@@ -1,7 +1,7 @@
 import { SectionWrapper } from "../layout/SectionWrapper";
 import type { WrapData } from "../../types";
 import { toPng } from "html-to-image";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Download, ExternalLink, Share2, X, MessageCircle, Instagram, Facebook, Linkedin, Copy, X as CloseIcon } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import baranProfile from "../../assets/baran.jpg";
@@ -12,106 +12,37 @@ interface SummarySectionProps {
 
 export const SummarySection = ({ data }: SummarySectionProps) => {
   const cardRef = useRef<HTMLDivElement>(null);
-  const avatarRef = useRef<HTMLImageElement>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  
+  // State to hold the "local" base64 version of the avatar
+  const [safeAvatarUrl, setSafeAvatarUrl] = useState<string>(data.user.avatar_url);
 
-  // Convert external image to data URL to avoid CORS issues
-  const convertImageToDataUrl = (img: HTMLImageElement): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      
-      if (!ctx) {
-        reject(new Error('Could not get canvas context'));
-        return;
-      }
-
-      canvas.width = img.naturalWidth || img.width;
-      canvas.height = img.naturalHeight || img.height;
-
+  // 1. PRE-LOAD AVATAR: Fetch avatar as Blob to bypass CORS during canvas generation
+  useEffect(() => {
+    const loadAvatar = async () => {
       try {
-        ctx.drawImage(img, 0, 0);
-        const dataUrl = canvas.toDataURL('image/png');
-        resolve(dataUrl);
-      } catch (err) {
-        // If CORS fails, try to use the original src
-        reject(err);
+        const response = await fetch(data.user.avatar_url);
+        const blob = await response.blob();
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            setSafeAvatarUrl(reader.result);
+          }
+        };
+        reader.readAsDataURL(blob);
+      } catch (error) {
+        console.warn("Could not convert avatar to data URL, falling back to original url", error);
       }
-    });
-  };
+    };
 
-  // Wait for all images to load and convert external images to data URLs
-  const waitForImages = async (): Promise<void> => {
-    if (!cardRef.current) return;
-
-    const images = cardRef.current.querySelectorAll('img');
-    if (images.length === 0) return;
-
-    // Wait for all images to load
-    await Promise.all(
-      Array.from(images).map((img) => {
-        if (img.complete) return Promise.resolve();
-        return new Promise<void>((resolve) => {
-          img.onload = () => resolve();
-          img.onerror = () => resolve(); // Continue even if image fails
-        });
-      })
-    );
-
-    // Convert external images to data URLs to avoid CORS issues
-    for (const img of Array.from(images)) {
-      try {
-        // Only convert if it's an external image (not already a data URL)
-        if (img.src && !img.src.startsWith('data:')) {
-          const dataUrl = await convertImageToDataUrl(img);
-          img.src = dataUrl;
-        }
-      } catch (err) {
-        // If conversion fails, continue with original image
-        console.warn('Failed to convert image to data URL:', err);
-      }
-    }
-
-    // Small delay to ensure rendering is complete
-    await new Promise(resolve => setTimeout(resolve, 200));
-  };
-
-  const handleDownload = async () => {
-    if (cardRef.current) {
-      setIsGenerating(true);
-      try {
-        // Wait for images to load
-        await waitForImages();
-        
-        const dataUrl = await toPng(cardRef.current, {
-          cacheBust: true,
-          pixelRatio: 2,
-          backgroundColor: '#0B0D10',
-        });
-        const link = document.createElement("a");
-        link.download = `github-wrap-${data.user.login}.png`;
-        link.href = dataUrl;
-        link.click();
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setIsGenerating(false);
-      }
-    }
-  };
+    loadAvatar();
+  }, [data.user.avatar_url]);
 
   const getShareText = () => {
-    const url = window.location.href;
     const topLanguage = data.stats.topLanguages[0]?.name || "Code";
-    return `🚀 My 2025 GitHub Wrap! 
-
-📊 ${data.stats.totalCommits.toLocaleString()} contributions
-💻 Top language: ${topLanguage}
-📅 Busiest month: ${data.stats.busiestMonth}
-
-Check out my GitHub year: ${url}`;
+    return `🚀 My 2025 GitHub Wrap! \n\n📊 ${data.stats.totalCommits.toLocaleString()} contributions\n💻 Top language: ${topLanguage}\n📅 Busiest month: ${data.stats.busiestMonth}\n\nCheck out my GitHub year:`;
   };
 
   const generateImage = async (): Promise<string | null> => {
@@ -119,14 +50,17 @@ Check out my GitHub year: ${url}`;
     
     if (cardRef.current) {
       try {
-        // Wait for images to load
-        await waitForImages();
-        
+        // Simple delay to ensure fonts/images are rendered
+        await new Promise(resolve => setTimeout(resolve, 100));
+
         const dataUrl = await toPng(cardRef.current, {
           cacheBust: true,
-          pixelRatio: 2,
+          pixelRatio: 2, // Higher quality
           backgroundColor: '#0B0D10',
+          // skipAutoScale helps with consistent sizing
+          skipAutoScale: true, 
         });
+        
         setImageDataUrl(dataUrl);
         return dataUrl;
       } catch (err) {
@@ -137,77 +71,104 @@ Check out my GitHub year: ${url}`;
     return null;
   };
 
+  const handleDownload = async () => {
+    if (cardRef.current) {
+      setIsGenerating(true);
+      try {
+        const dataUrl = await generateImage();
+        if (dataUrl) {
+            const link = document.createElement("a");
+            link.download = `github-wrap-${data.user.login}.png`;
+            link.href = dataUrl;
+            link.click();
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsGenerating(false);
+      }
+    }
+  };
+
   const handleShareClick = async () => {
-    // Generate image first
-    await generateImage();
+    // We do NOT wait for generation here to keep UI snappy
+    // We generate on demand if the specific platform requires it
     setShowShareMenu(true);
   };
 
   const shareToPlatform = async (platform: string) => {
     const shareText = getShareText();
     const url = window.location.href;
-    const imageUrl = await generateImage();
-
+    
+    // 2. IMMEDIATE OPEN: For text-based platforms, open immediately to avoid popup blockers.
+    // Do NOT await generateImage() here for Twitter/FB/WA/LinkedIn.
+    
     switch (platform) {
       case 'whatsapp':
-        window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, '_blank');
-        break;
+        window.open(`https://wa.me/?text=${encodeURIComponent(shareText + " " + url)}`, '_blank');
+        setShowShareMenu(false);
+        return; // Exit early
       
       case 'x':
       case 'twitter':
-        // X/Twitter - text only (can't attach image via URL)
-        window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}`, '_blank', 'width=550,height=420');
-        break;
+        window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(url)}`, '_blank', 'width=550,height=420');
+        setShowShareMenu(false);
+        return;
       
       case 'facebook':
         window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}&quote=${encodeURIComponent(shareText)}`, '_blank', 'width=600,height=400');
-        break;
+        setShowShareMenu(false);
+        return;
       
       case 'linkedin':
         window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`, '_blank', 'width=600,height=400');
-        break;
-      
+        setShowShareMenu(false);
+        return;
+    }
+
+    // 3. ASYNC SHARE: For platforms that need the image (Native, Instagram, Copy)
+    setIsGenerating(true); // Optional: show a spinner if this takes long
+    const imageUrl = await generateImage();
+    setIsGenerating(false);
+
+    switch (platform) {
       case 'instagram':
-        // Instagram doesn't support web sharing, so copy image and text
         if (imageUrl) {
           try {
             const blob = await fetch(imageUrl).then(r => r.blob());
-            const file = new File([blob], `github-wrap-${data.user.login}.png`, { type: 'image/png' });
-            await navigator.clipboard.write([
-              new ClipboardItem({ 'image/png': file })
-            ]);
-            alert('Image copied! Open Instagram and paste it. Text copied to clipboard.');
-            await navigator.clipboard.writeText(shareText);
+            // Using clipboard API which is supported in most modern browsers
+            const item = new ClipboardItem({ 'image/png': blob });
+            await navigator.clipboard.write([item]);
+            alert('Image copied! Open Instagram Stories and paste it. Text copied to clipboard.');
+            await navigator.clipboard.writeText(shareText + " " + url);
           } catch (err) {
             console.error('Failed to copy image:', err);
-            await navigator.clipboard.writeText(shareText);
-            alert('Text copied! Open Instagram and create a post.');
+            await navigator.clipboard.writeText(shareText + " " + url);
+            alert('Could not copy image automatically. Text copied!');
           }
-        } else {
-          await navigator.clipboard.writeText(shareText);
-          alert('Text copied! Open Instagram and create a post.');
         }
         break;
       
       case 'native':
-        // Native share with image
         if (navigator.share && imageUrl) {
           try {
             const blob = await fetch(imageUrl).then(r => r.blob());
             const file = new File([blob], `github-wrap-${data.user.login}.png`, { type: 'image/png' });
             
+            const shareData = {
+                title: `My 2025 GitHub Wrap`,
+                text: shareText,
+                url: url, // Some apps ignore this if files are present
+            };
+
             if (navigator.canShare && navigator.canShare({ files: [file] })) {
               await navigator.share({
-                title: `My 2025 GitHub Wrap - @${data.user.login}`,
-                text: shareText,
+                ...shareData,
                 files: [file],
               });
             } else {
-              await navigator.share({
-                title: `My 2025 GitHub Wrap - @${data.user.login}`,
-                text: shareText,
-                url: url,
-              });
+              // Fallback for devices that support share but not files
+              await navigator.share(shareData);
             }
           } catch (err) {
             if ((err as Error).name !== 'AbortError') {
@@ -218,7 +179,7 @@ Check out my GitHub year: ${url}`;
         break;
       
       case 'copy':
-        await navigator.clipboard.writeText(`${shareText}\n\n${url}`);
+        await navigator.clipboard.writeText(`${shareText}\n${url}`);
         alert('Link copied to clipboard!');
         break;
     }
@@ -231,8 +192,8 @@ Check out my GitHub year: ${url}`;
     { id: 'x', name: 'X (Twitter)', icon: X, color: '#000000' },
     { id: 'facebook', name: 'Facebook', icon: Facebook, color: '#1877F2' },
     { id: 'linkedin', name: 'LinkedIn', icon: Linkedin, color: '#0A66C2' },
-    { id: 'instagram', name: 'Instagram', icon: Instagram, color: '#E4405F' },
-    ...(typeof navigator !== 'undefined' && 'share' in navigator ? [{ id: 'native', name: 'More', icon: Share2, color: '#7C7CFF' }] : []),
+    { id: 'instagram', name: 'Stories', icon: Instagram, color: '#E4405F' },
+    ...(typeof navigator !== 'undefined' && 'share' in navigator ? [{ id: 'native', name: 'Share...', icon: Share2, color: '#7C7CFF' }] : []),
     { id: 'copy', name: 'Copy Link', icon: Copy, color: '#6B7280' },
   ];
 
@@ -249,18 +210,17 @@ Check out my GitHub year: ${url}`;
           className="bg-[#0B0D10] w-[350px] md:w-[400px] aspect-[4/5] md:aspect-[4/4.2] p-8 rounded-3xl border border-white/10 relative overflow-hidden 
           flex flex-col shadow-2xl justify-between"
         >
-          {/* Background decoration for the card */}
           <div className="absolute top-0 right-0 w-64 h-64 bg-accentDefault/20 rounded-full blur-[80px]" />
           <div className="absolute bottom-0 left-0 w-64 h-64 bg-accentJS/10 rounded-full blur-[80px]" />
 
-          <div className="relative z-10  flex flex-col min-h-0">
+          <div className="relative z-10 flex flex-col min-h-0">
              <div className="flex items-center gap-4 mb-6">
+                {/* USE THE SAFE AVATAR URL HERE */}
                 <img 
-                  ref={avatarRef}
-                  src={data.user.avatar_url} 
+                  src={safeAvatarUrl} 
                   alt={data.user.login}
                   className="w-16 h-16 rounded-full border border-white/20"
-                  crossOrigin="anonymous"
+                  // Removing crossOrigin here as we are now using a data URI which is safe
                 />
                 <div>
                   <h3 className="text-xl font-bold font-display">@{data.user.login}</h3>
@@ -268,7 +228,7 @@ Check out my GitHub year: ${url}`;
                 </div>
              </div>
 
-             <div className="space-y-6 ">
+             <div className="space-y-6">
                 <div>
                    <div className="text-sm text-textSecondary uppercase tracking-widest mb-1">Total Contributions</div>
                    <div className="text-5xl font-black font-display leading-none">{data.stats.totalCommits.toLocaleString()}</div>
@@ -289,26 +249,21 @@ Check out my GitHub year: ${url}`;
                 
                  <div>
                     <div className="text-xs text-textSecondary uppercase tracking-widest mb-1">Active Days</div>
-                    {/* Visual representation of activity pattern - show last 20 days from today */}
                     <div className="flex gap-1 h-3 mt-2">
                       {(() => {
                         const today = new Date();
                         today.setHours(0, 0, 0, 0);
-                        
-                        // Filter contributions from the current year up to today
                         const currentYearContributions = data.contributions.contributions.filter(day => {
                           const dayDate = new Date(day.date);
                           dayDate.setHours(0, 0, 0, 0);
                           return dayDate <= today && dayDate.getFullYear() === today.getFullYear();
                         });
                         
-                        // Get the last 20 days from today backwards
                         const last20Days: Array<{ date: string; count: number }> = [];
                         for (let i = 19; i >= 0; i--) {
                           const date = new Date(today);
                           date.setDate(date.getDate() - i);
                           const dateStr = date.toISOString().split('T')[0];
-                          
                           const contribution = currentYearContributions.find(d => d.date === dateStr);
                           last20Days.push(contribution || { date: dateStr, count: 0 });
                         }
@@ -326,7 +281,6 @@ Check out my GitHub year: ${url}`;
                                   ? `rgba(124, 124, 255, ${intensity})` 
                                   : 'rgba(255, 255, 255, 0.1)'
                               }} 
-                              title={day.count > 0 ? `${day.count} contributions on ${day.date}` : 'No contributions'}
                             />
                           );
                         });
@@ -335,7 +289,6 @@ Check out my GitHub year: ${url}`;
                  </div>
              </div>
           </div>
-
 
           <div className="relative z-10 flex flex-col md:flex-row justify-between items-end gap-4">
             <div className="text-2xl font-display font-black tracking-tighter whitespace-nowrap">
@@ -370,26 +323,23 @@ Check out my GitHub year: ${url}`;
            <AnimatePresence>
              {showShareMenu && (
                <>
-                 {/* Backdrop */}
                  <motion.div
                    initial={{ opacity: 0 }}
                    animate={{ opacity: 1 }}
                    exit={{ opacity: 0 }}
                    onClick={() => setShowShareMenu(false)}
-                   className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
+                   className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
                  />
                  
-                 {/* Share Menu */}
                  <motion.div
                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
                    animate={{ opacity: 1, scale: 1, y: 0 }}
                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                   className="fixed inset-0 z-50 flex items-center justify-center p-4"
-                   onClick={(e) => e.stopPropagation()}
+                   className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
                  >
-                   <div className="bg-[#1A1A1A] border border-white/10 rounded-2xl p-6 max-w-md w-full max-h-[80vh] overflow-y-auto">
+                   <div className="bg-[#1A1A1A] border border-white/10 rounded-2xl p-6 max-w-md w-full pointer-events-auto shadow-2xl">
                      <div className="flex items-center justify-between mb-6">
-                       <h3 className="text-xl font-bold">Share your GitHub Wrap</h3>
+                       <h3 className="text-xl font-bold">Share your Wrap</h3>
                        <button
                          onClick={() => setShowShareMenu(false)}
                          className="p-2 hover:bg-white/10 rounded-full transition-colors"
@@ -405,7 +355,8 @@ Check out my GitHub year: ${url}`;
                            <button
                              key={platform.id}
                              onClick={() => shareToPlatform(platform.id)}
-                             className="flex flex-col items-center gap-2 p-4 bg-white/5 hover:bg-white/10 rounded-xl transition-colors group"
+                             disabled={isGenerating && (platform.id === 'instagram' || platform.id === 'native')}
+                             className="flex flex-col items-center gap-2 p-4 bg-white/5 hover:bg-white/10 rounded-xl transition-colors group disabled:opacity-50"
                            >
                              <div
                                className="p-3 rounded-full"
@@ -422,6 +373,10 @@ Check out my GitHub year: ${url}`;
                          );
                        })}
                      </div>
+                     <p className="text-xs text-center mt-6 text-white/30">
+                        Web sharing does not support attaching images directly to X/WhatsApp. 
+                        We recommend Native Share on mobile.
+                     </p>
                    </div>
                  </motion.div>
                </>
