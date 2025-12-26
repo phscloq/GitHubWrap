@@ -12,15 +12,84 @@ interface SummarySectionProps {
 
 export const SummarySection = ({ data }: SummarySectionProps) => {
   const cardRef = useRef<HTMLDivElement>(null);
+  const avatarRef = useRef<HTMLImageElement>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+
+  // Convert external image to data URL to avoid CORS issues
+  const convertImageToDataUrl = (img: HTMLImageElement): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        reject(new Error('Could not get canvas context'));
+        return;
+      }
+
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+
+      try {
+        ctx.drawImage(img, 0, 0);
+        const dataUrl = canvas.toDataURL('image/png');
+        resolve(dataUrl);
+      } catch (err) {
+        // If CORS fails, try to use the original src
+        reject(err);
+      }
+    });
+  };
+
+  // Wait for all images to load and convert external images to data URLs
+  const waitForImages = async (): Promise<void> => {
+    if (!cardRef.current) return;
+
+    const images = cardRef.current.querySelectorAll('img');
+    if (images.length === 0) return;
+
+    // Wait for all images to load
+    await Promise.all(
+      Array.from(images).map((img) => {
+        if (img.complete) return Promise.resolve();
+        return new Promise<void>((resolve) => {
+          img.onload = () => resolve();
+          img.onerror = () => resolve(); // Continue even if image fails
+        });
+      })
+    );
+
+    // Convert external images to data URLs to avoid CORS issues
+    for (const img of Array.from(images)) {
+      try {
+        // Only convert if it's an external image (not already a data URL)
+        if (img.src && !img.src.startsWith('data:')) {
+          const dataUrl = await convertImageToDataUrl(img);
+          img.src = dataUrl;
+        }
+      } catch (err) {
+        // If conversion fails, continue with original image
+        console.warn('Failed to convert image to data URL:', err);
+      }
+    }
+
+    // Small delay to ensure rendering is complete
+    await new Promise(resolve => setTimeout(resolve, 200));
+  };
 
   const handleDownload = async () => {
     if (cardRef.current) {
       setIsGenerating(true);
       try {
-        const dataUrl = await toPng(cardRef.current, { cacheBust: true, pixelRatio: 2 });
+        // Wait for images to load
+        await waitForImages();
+        
+        const dataUrl = await toPng(cardRef.current, {
+          cacheBust: true,
+          pixelRatio: 2,
+          backgroundColor: '#0B0D10',
+        });
         const link = document.createElement("a");
         link.download = `github-wrap-${data.user.login}.png`;
         link.href = dataUrl;
@@ -50,7 +119,14 @@ Check out my GitHub year: ${url}`;
     
     if (cardRef.current) {
       try {
-        const dataUrl = await toPng(cardRef.current, { cacheBust: true, pixelRatio: 2 });
+        // Wait for images to load
+        await waitForImages();
+        
+        const dataUrl = await toPng(cardRef.current, {
+          cacheBust: true,
+          pixelRatio: 2,
+          backgroundColor: '#0B0D10',
+        });
         setImageDataUrl(dataUrl);
         return dataUrl;
       } catch (err) {
@@ -179,7 +255,13 @@ Check out my GitHub year: ${url}`;
 
           <div className="relative z-10  flex flex-col min-h-0">
              <div className="flex items-center gap-4 mb-6">
-                <img src={data.user.avatar_url} className="w-16 h-16 rounded-full border border-white/20" />
+                <img 
+                  ref={avatarRef}
+                  src={data.user.avatar_url} 
+                  alt={data.user.login}
+                  className="w-16 h-16 rounded-full border border-white/20"
+                  crossOrigin="anonymous"
+                />
                 <div>
                   <h3 className="text-xl font-bold font-display">@{data.user.login}</h3>
                   <p className="text-sm text-textSecondary">2025 GitHub Wrap</p>
