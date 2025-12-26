@@ -2,7 +2,7 @@ import { SectionWrapper } from "../layout/SectionWrapper";
 import type { WrapData } from "../../types";
 import { toPng } from "html-to-image";
 import { useRef, useState, useEffect } from "react";
-import { Download, ExternalLink, Share2, X, MessageCircle, Instagram, Facebook, Linkedin, Copy, X as CloseIcon } from "lucide-react";
+import { Download, ExternalLink, Share2, Copy, X as CloseIcon } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import baranProfile from "../../assets/baran.jpg";
 
@@ -99,102 +99,55 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
   const shareToPlatform = async (platform: string) => {
     const shareText = getShareText();
     const url = window.location.href;
-    
-    // 2. IMMEDIATE OPEN: For text-based platforms, open immediately to avoid popup blockers.
-    // Do NOT await generateImage() here for Twitter/FB/WA/LinkedIn.
-    
-    switch (platform) {
-      case 'whatsapp':
-        window.open(`https://wa.me/?text=${encodeURIComponent(shareText + " " + url)}`, '_blank');
-        setShowShareMenu(false);
-        return; // Exit early
-      
-      case 'x':
-      case 'twitter':
-        window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(url)}`, '_blank', 'width=550,height=420');
-        setShowShareMenu(false);
-        return;
-      
-      case 'facebook':
-        window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}&quote=${encodeURIComponent(shareText)}`, '_blank', 'width=600,height=400');
-        setShowShareMenu(false);
-        return;
-      
-      case 'linkedin':
-        window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`, '_blank', 'width=600,height=400');
-        setShowShareMenu(false);
-        return;
-    }
-
-    // 3. ASYNC SHARE: For platforms that need the image (Native, Instagram, Copy)
-    setIsGenerating(true); // Optional: show a spinner if this takes long
-    const imageUrl = await generateImage();
-    setIsGenerating(false);
 
     switch (platform) {
-      case 'instagram':
-        if (imageUrl) {
-          try {
-            const blob = await fetch(imageUrl).then(r => r.blob());
-            // Using clipboard API which is supported in most modern browsers
-            const item = new ClipboardItem({ 'image/png': blob });
-            await navigator.clipboard.write([item]);
-            alert('Image copied! Open Instagram Stories and paste it. Text copied to clipboard.');
-            await navigator.clipboard.writeText(shareText + " " + url);
-          } catch (err) {
-            console.error('Failed to copy image:', err);
-            await navigator.clipboard.writeText(shareText + " " + url);
-            alert('Could not copy image automatically. Text copied!');
-          }
-        }
-        break;
-      
-      case 'native':
-        if (navigator.share && imageUrl) {
-          try {
-            const blob = await fetch(imageUrl).then(r => r.blob());
-            const file = new File([blob], `github-wrap-${data.user.login}.png`, { type: 'image/png' });
-            
-            const shareData = {
-                title: `My 2025 GitHub Wrap`,
-                text: shareText,
-                url: url, // Some apps ignore this if files are present
-            };
-
-            if (navigator.canShare && navigator.canShare({ files: [file] })) {
-              await navigator.share({
-                ...shareData,
-                files: [file],
-              });
-            } else {
-              // Fallback for devices that support share but not files
-              await navigator.share(shareData);
-            }
-          } catch (err) {
-            if ((err as Error).name !== 'AbortError') {
-              console.error('Share failed:', err);
-            }
-          }
-        }
-        break;
-      
       case 'copy':
         await navigator.clipboard.writeText(`${shareText}\n${url}`);
         alert('Link copied to clipboard!');
+        setShowShareMenu(false);
+        break;
+      
+      case 'native':
+        setIsGenerating(true);
+        try {
+          const imageUrl = await generateImage();
+          
+          if (navigator.share && imageUrl) {
+            try {
+              const blob = await fetch(imageUrl).then(r => r.blob());
+              const file = new File([blob], `github-wrap-${data.user.login}.png`, { type: 'image/png' });
+              
+              const shareData = {
+                title: `My 2025 GitHub Wrap`,
+                text: shareText,
+                url: url,
+              };
+
+              if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                  ...shareData,
+                  files: [file],
+                });
+              } else {
+                await navigator.share(shareData);
+              }
+            } catch (err) {
+              if ((err as Error).name !== 'AbortError') {
+                console.error('Share failed:', err);
+              }
+            }
+          }
+        } finally {
+          setIsGenerating(false);
+          setShowShareMenu(false);
+        }
         break;
     }
-    
-    setShowShareMenu(false);
   };
 
   const sharePlatforms = [
-    { id: 'whatsapp', name: 'WhatsApp', icon: MessageCircle, color: '#25D366' },
-    { id: 'x', name: 'X (Twitter)', icon: X, color: '#000000' },
-    { id: 'facebook', name: 'Facebook', icon: Facebook, color: '#1877F2' },
-    { id: 'linkedin', name: 'LinkedIn', icon: Linkedin, color: '#0A66C2' },
-    { id: 'instagram', name: 'Stories', icon: Instagram, color: '#E4405F' },
-    ...(typeof navigator !== 'undefined' && 'share' in navigator ? [{ id: 'native', name: 'Share...', icon: Share2, color: '#7C7CFF' }] : []),
     { id: 'copy', name: 'Copy Link', icon: Copy, color: '#6B7280' },
+    ...(typeof navigator !== 'undefined' && 'share' in navigator ? [{ id: 'native', name: 'Share', icon: Share2, color: '#7C7CFF' }] : []),
   ];
 
   return (
@@ -348,35 +301,34 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
                        </button>
                      </div>
                      
-                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                     <div className="flex flex-col gap-3">
                        {sharePlatforms.map((platform) => {
                          const Icon = platform.icon;
                          return (
                            <button
                              key={platform.id}
                              onClick={() => shareToPlatform(platform.id)}
-                             disabled={isGenerating && (platform.id === 'instagram' || platform.id === 'native')}
-                             className="flex flex-col items-center gap-2 p-4 bg-white/5 hover:bg-white/10 rounded-xl transition-colors group disabled:opacity-50"
+                             disabled={isGenerating && platform.id === 'native'}
+                             className="flex items-center gap-3 p-4 bg-white/5 hover:bg-white/10 rounded-xl transition-colors group disabled:opacity-50"
                            >
                              <div
-                               className="p-3 rounded-full"
+                               className="p-2 rounded-full"
                                style={{ backgroundColor: `${platform.color}20` }}
                              >
                                <Icon
-                                 size={24}
+                                 size={20}
                                  className="group-hover:scale-110 transition-transform"
                                  style={{ color: platform.color }}
                                />
                              </div>
-                             <span className="text-sm font-medium text-center">{platform.name}</span>
+                             <span className="text-sm font-medium flex-1 text-left">{platform.name}</span>
+                             {isGenerating && platform.id === 'native' && (
+                               <span className="text-xs text-white/50">Generating...</span>
+                             )}
                            </button>
                          );
                        })}
                      </div>
-                     <p className="text-xs text-center mt-6 text-white/30">
-                        Web sharing does not support attaching images directly to X/WhatsApp. 
-                        We recommend Native Share on mobile.
-                     </p>
                    </div>
                  </motion.div>
                </>
