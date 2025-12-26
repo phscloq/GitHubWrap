@@ -2,8 +2,7 @@ import { SectionWrapper } from "../layout/SectionWrapper";
 import type { WrapData } from "../../types";
 import { toPng } from "html-to-image";
 import { useRef, useState, useEffect } from "react";
-import { Download, ExternalLink, Share2, Copy, X as CloseIcon } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { Download, ExternalLink, Share2, Copy } from "lucide-react";
 import baranProfile from "../../assets/baran.jpg";
 
 interface SummarySectionProps {
@@ -13,7 +12,6 @@ interface SummarySectionProps {
 export const SummarySection = ({ data }: SummarySectionProps) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [showShareMenu, setShowShareMenu] = useState(false);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   
   // State to hold the "local" base64 version of the avatar
@@ -90,65 +88,50 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
     }
   };
 
-  const handleShareClick = async () => {
-    // We do NOT wait for generation here to keep UI snappy
-    // We generate on demand if the specific platform requires it
-    setShowShareMenu(true);
-  };
-
-  const shareToPlatform = async (platform: string) => {
-    const shareText = getShareText();
-    const url = window.location.href;
-
-    switch (platform) {
-      case 'copy':
-        await navigator.clipboard.writeText(`${shareText}\n${url}`);
-        alert('Link copied to clipboard!');
-        setShowShareMenu(false);
-        break;
+  const handleNativeShare = async () => {
+    setIsGenerating(true);
+    try {
+      const imageUrl = await generateImage();
+      const shareText = getShareText();
+      const url = window.location.href;
       
-      case 'native':
-        setIsGenerating(true);
+      if (navigator.share && imageUrl) {
         try {
-          const imageUrl = await generateImage();
+          const blob = await fetch(imageUrl).then(r => r.blob());
+          const file = new File([blob], `github-wrap-${data.user.login}.png`, { type: 'image/png' });
           
-          if (navigator.share && imageUrl) {
-            try {
-              const blob = await fetch(imageUrl).then(r => r.blob());
-              const file = new File([blob], `github-wrap-${data.user.login}.png`, { type: 'image/png' });
-              
-              const shareData = {
-                title: `My 2025 GitHub Wrap`,
-                text: shareText,
-                url: url,
-              };
+          const shareData = {
+            title: `My 2025 GitHub Wrap`,
+            text: shareText,
+            url: url,
+          };
 
-              if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                await navigator.share({
-                  ...shareData,
-                  files: [file],
-                });
-              } else {
-                await navigator.share(shareData);
-              }
-            } catch (err) {
-              if ((err as Error).name !== 'AbortError') {
-                console.error('Share failed:', err);
-              }
-            }
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              ...shareData,
+              files: [file],
+            });
+          } else {
+            await navigator.share(shareData);
           }
-        } finally {
-          setIsGenerating(false);
-          setShowShareMenu(false);
+        } catch (err) {
+          if ((err as Error).name !== 'AbortError') {
+            console.error('Share failed:', err);
+          }
         }
-        break;
+      }
+    } finally {
+      setIsGenerating(false);
     }
   };
 
-  const sharePlatforms = [
-    { id: 'copy', name: 'Copy Link', icon: Copy, color: '#6B7280' },
-    ...(typeof navigator !== 'undefined' && 'share' in navigator ? [{ id: 'native', name: 'Share', icon: Share2, color: '#7C7CFF' }] : []),
-  ];
+  const handleCopyLink = async () => {
+    const shareText = getShareText();
+    const url = window.location.href;
+    await navigator.clipboard.writeText(`${shareText}\n${url}`);
+    alert('Link copied to clipboard!');
+  };
+
 
   return (
     <SectionWrapper>
@@ -253,7 +236,7 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-4 mt-12 justify-center relative">
+        <div className="flex flex-wrap gap-4 mt-12 justify-center">
            <button 
              onClick={handleDownload}
              disabled={isGenerating}
@@ -265,75 +248,23 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
            </button>
 
            <button
-             onClick={handleShareClick}
-             className="flex items-center gap-2 px-6 md:px-8 py-4 bg-accentDefault text-white rounded-full font-bold hover:bg-accentDefault/90 transition-colors"
+             onClick={handleCopyLink}
+             className="flex items-center gap-2 px-6 md:px-8 py-4 bg-white/10 border border-white/20 text-white rounded-full font-bold hover:bg-white/20 transition-colors"
            >
-             <Share2 size={20} />
-             <span>Share</span>
+             <Copy size={20} />
+             <span>Copy Link</span>
            </button>
 
-           {/* Share Menu Modal */}
-           <AnimatePresence>
-             {showShareMenu && (
-               <>
-                 <motion.div
-                   initial={{ opacity: 0 }}
-                   animate={{ opacity: 1 }}
-                   exit={{ opacity: 0 }}
-                   onClick={() => setShowShareMenu(false)}
-                   className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
-                 />
-                 
-                 <motion.div
-                   initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                   animate={{ opacity: 1, scale: 1, y: 0 }}
-                   exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                   className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
-                 >
-                   <div className="bg-[#1A1A1A] border border-white/10 rounded-2xl p-6 max-w-md w-full pointer-events-auto shadow-2xl">
-                     <div className="flex items-center justify-between mb-6">
-                       <h3 className="text-xl font-bold">Share your Wrap</h3>
-                       <button
-                         onClick={() => setShowShareMenu(false)}
-                         className="p-2 hover:bg-white/10 rounded-full transition-colors"
-                       >
-                         <CloseIcon size={20} />
-                       </button>
-                     </div>
-                     
-                     <div className="flex flex-col gap-3">
-                       {sharePlatforms.map((platform) => {
-                         const Icon = platform.icon;
-                         return (
-                           <button
-                             key={platform.id}
-                             onClick={() => shareToPlatform(platform.id)}
-                             disabled={isGenerating && platform.id === 'native'}
-                             className="flex items-center gap-3 p-4 bg-white/5 hover:bg-white/10 rounded-xl transition-colors group disabled:opacity-50"
-                           >
-                             <div
-                               className="p-2 rounded-full"
-                               style={{ backgroundColor: `${platform.color}20` }}
-                             >
-                               <Icon
-                                 size={20}
-                                 className="group-hover:scale-110 transition-transform"
-                                 style={{ color: platform.color }}
-                               />
-                             </div>
-                             <span className="text-sm font-medium flex-1 text-left">{platform.name}</span>
-                             {isGenerating && platform.id === 'native' && (
-                               <span className="text-xs text-white/50">Generating...</span>
-                             )}
-                           </button>
-                         );
-                       })}
-                     </div>
-                   </div>
-                 </motion.div>
-               </>
-             )}
-           </AnimatePresence>
+           {typeof navigator !== 'undefined' && 'share' in navigator && (
+             <button
+               onClick={handleNativeShare}
+               disabled={isGenerating}
+               className="flex items-center gap-2 px-6 md:px-8 py-4 bg-accentDefault text-white rounded-full font-bold hover:bg-accentDefault/90 transition-colors disabled:opacity-50"
+             >
+               <Share2 size={20} />
+               <span>{isGenerating ? "Generating..." : "Share"}</span>
+             </button>
+           )}
         </div>
 
         {/* Footer with links */}
