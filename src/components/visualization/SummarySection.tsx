@@ -2,7 +2,8 @@ import { SectionWrapper } from "../layout/SectionWrapper";
 import type { WrapData } from "../../types";
 import { toPng } from "html-to-image";
 import { useRef, useState } from "react";
-import { Download, ExternalLink, Share2, Twitter } from "lucide-react";
+import { Download, ExternalLink, Share2, X, MessageCircle, Instagram, Facebook, Linkedin, Copy, X as CloseIcon } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import baranProfile from "../../assets/baran.jpg";
 
 interface SummarySectionProps {
@@ -12,6 +13,8 @@ interface SummarySectionProps {
 export const SummarySection = ({ data }: SummarySectionProps) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [showShareMenu, setShowShareMenu] = useState(false);
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
 
   const handleDownload = async () => {
     if (cardRef.current) {
@@ -42,58 +45,120 @@ export const SummarySection = ({ data }: SummarySectionProps) => {
 Check out my GitHub year: ${url}`;
   };
 
-  const handleNativeShare = async () => {
-    const shareText = getShareText();
-
-    // Try to share image if available
-    let files: File[] = [];
+  const generateImage = async (): Promise<string | null> => {
+    if (imageDataUrl) return imageDataUrl;
+    
     if (cardRef.current) {
       try {
         const dataUrl = await toPng(cardRef.current, { cacheBust: true, pixelRatio: 2 });
-        const blob = await fetch(dataUrl).then(r => r.blob());
-        const file = new File([blob], `github-wrap-${data.user.login}.png`, { type: 'image/png' });
-        files = [file];
+        setImageDataUrl(dataUrl);
+        return dataUrl;
       } catch (err) {
-        console.error('Failed to generate image for share:', err);
+        console.error('Failed to generate image:', err);
+        return null;
       }
     }
-
-    if (navigator.share) {
-      try {
-        const shareData: ShareData = {
-          title: `My 2025 GitHub Wrap - @${data.user.login}`,
-          text: shareText,
-          url: window.location.href,
-        };
-
-        // Add file if available (some platforms support it)
-        if (files.length > 0 && navigator.canShare && navigator.canShare({ files })) {
-          shareData.files = files;
-        }
-
-        await navigator.share(shareData);
-      } catch (err) {
-        // User cancelled or share failed
-        if ((err as Error).name !== 'AbortError') {
-          console.error('Share failed:', err);
-        }
-      }
-    }
+    return null;
   };
 
-  const handleTwitterShare = () => {
+  const handleShareClick = async () => {
+    // Generate image first
+    await generateImage();
+    setShowShareMenu(true);
+  };
+
+  const shareToPlatform = async (platform: string) => {
     const shareText = getShareText();
-    const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
-    window.open(twitterUrl, '_blank', 'width=550,height=420');
+    const url = window.location.href;
+    const imageUrl = await generateImage();
+
+    switch (platform) {
+      case 'whatsapp':
+        window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, '_blank');
+        break;
+      
+      case 'x':
+      case 'twitter':
+        // X/Twitter - text only (can't attach image via URL)
+        window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}`, '_blank', 'width=550,height=420');
+        break;
+      
+      case 'facebook':
+        window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}&quote=${encodeURIComponent(shareText)}`, '_blank', 'width=600,height=400');
+        break;
+      
+      case 'linkedin':
+        window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`, '_blank', 'width=600,height=400');
+        break;
+      
+      case 'instagram':
+        // Instagram doesn't support web sharing, so copy image and text
+        if (imageUrl) {
+          try {
+            const blob = await fetch(imageUrl).then(r => r.blob());
+            const file = new File([blob], `github-wrap-${data.user.login}.png`, { type: 'image/png' });
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': file })
+            ]);
+            alert('Image copied! Open Instagram and paste it. Text copied to clipboard.');
+            await navigator.clipboard.writeText(shareText);
+          } catch (err) {
+            console.error('Failed to copy image:', err);
+            await navigator.clipboard.writeText(shareText);
+            alert('Text copied! Open Instagram and create a post.');
+          }
+        } else {
+          await navigator.clipboard.writeText(shareText);
+          alert('Text copied! Open Instagram and create a post.');
+        }
+        break;
+      
+      case 'native':
+        // Native share with image
+        if (navigator.share && imageUrl) {
+          try {
+            const blob = await fetch(imageUrl).then(r => r.blob());
+            const file = new File([blob], `github-wrap-${data.user.login}.png`, { type: 'image/png' });
+            
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                title: `My 2025 GitHub Wrap - @${data.user.login}`,
+                text: shareText,
+                files: [file],
+              });
+            } else {
+              await navigator.share({
+                title: `My 2025 GitHub Wrap - @${data.user.login}`,
+                text: shareText,
+                url: url,
+              });
+            }
+          } catch (err) {
+            if ((err as Error).name !== 'AbortError') {
+              console.error('Share failed:', err);
+            }
+          }
+        }
+        break;
+      
+      case 'copy':
+        await navigator.clipboard.writeText(`${shareText}\n\n${url}`);
+        alert('Link copied to clipboard!');
+        break;
+    }
+    
+    setShowShareMenu(false);
   };
 
-  const isMobile = () => {
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  };
-
-  const canUseNativeShare = () => {
-    return navigator.share !== undefined;
-  };
+  const sharePlatforms = [
+    { id: 'whatsapp', name: 'WhatsApp', icon: MessageCircle, color: '#25D366' },
+    { id: 'x', name: 'X (Twitter)', icon: X, color: '#000000' },
+    { id: 'facebook', name: 'Facebook', icon: Facebook, color: '#1877F2' },
+    { id: 'linkedin', name: 'LinkedIn', icon: Linkedin, color: '#0A66C2' },
+    { id: 'instagram', name: 'Instagram', icon: Instagram, color: '#E4405F' },
+    ...(typeof navigator !== 'undefined' && 'share' in navigator ? [{ id: 'native', name: 'More', icon: Share2, color: '#7C7CFF' }] : []),
+    { id: 'copy', name: 'Copy Link', icon: Copy, color: '#6B7280' },
+  ];
 
   return (
     <SectionWrapper>
@@ -200,7 +265,7 @@ Check out my GitHub year: ${url}`;
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-4 mt-12 justify-center">
+        <div className="flex flex-wrap gap-4 mt-12 justify-center relative">
            <button 
              onClick={handleDownload}
              disabled={isGenerating}
@@ -211,29 +276,75 @@ Check out my GitHub year: ${url}`;
              <span className="sm:hidden">{isGenerating ? "Exporting..." : "Download"}</span>
            </button>
 
-           {/* Native Share Button (Mobile) */}
-           {canUseNativeShare() && (
-             <button
-               onClick={handleNativeShare}
-               className="flex items-center gap-2 px-6 md:px-8 py-4 bg-accentDefault text-white rounded-full font-bold hover:bg-accentDefault/90 transition-colors"
-             >
-               <Share2 size={20} />
-               <span className="hidden sm:inline">Share</span>
-               <span className="sm:hidden">Share</span>
-             </button>
-           )}
+           <button
+             onClick={handleShareClick}
+             className="flex items-center gap-2 px-6 md:px-8 py-4 bg-accentDefault text-white rounded-full font-bold hover:bg-accentDefault/90 transition-colors"
+           >
+             <Share2 size={20} />
+             <span>Share</span>
+           </button>
 
-           {/* Twitter Share Button (Desktop fallback or always show on desktop) */}
-           {(!canUseNativeShare() || !isMobile()) && (
-             <button
-               onClick={handleTwitterShare}
-               className="flex items-center gap-2 px-6 md:px-8 py-4 bg-[#1DA1F2] text-white rounded-full font-bold hover:bg-[#1a8cd8] transition-colors"
-             >
-               <Twitter size={20} />
-               <span className="hidden sm:inline">Share on Twitter</span>
-               <span className="sm:hidden">Twitter</span>
-             </button>
-           )}
+           {/* Share Menu Modal */}
+           <AnimatePresence>
+             {showShareMenu && (
+               <>
+                 {/* Backdrop */}
+                 <motion.div
+                   initial={{ opacity: 0 }}
+                   animate={{ opacity: 1 }}
+                   exit={{ opacity: 0 }}
+                   onClick={() => setShowShareMenu(false)}
+                   className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
+                 />
+                 
+                 {/* Share Menu */}
+                 <motion.div
+                   initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                   animate={{ opacity: 1, scale: 1, y: 0 }}
+                   exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                   className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                   onClick={(e) => e.stopPropagation()}
+                 >
+                   <div className="bg-[#1A1A1A] border border-white/10 rounded-2xl p-6 max-w-md w-full max-h-[80vh] overflow-y-auto">
+                     <div className="flex items-center justify-between mb-6">
+                       <h3 className="text-xl font-bold">Share your GitHub Wrap</h3>
+                       <button
+                         onClick={() => setShowShareMenu(false)}
+                         className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                       >
+                         <CloseIcon size={20} />
+                       </button>
+                     </div>
+                     
+                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                       {sharePlatforms.map((platform) => {
+                         const Icon = platform.icon;
+                         return (
+                           <button
+                             key={platform.id}
+                             onClick={() => shareToPlatform(platform.id)}
+                             className="flex flex-col items-center gap-2 p-4 bg-white/5 hover:bg-white/10 rounded-xl transition-colors group"
+                           >
+                             <div
+                               className="p-3 rounded-full"
+                               style={{ backgroundColor: `${platform.color}20` }}
+                             >
+                               <Icon
+                                 size={24}
+                                 className="group-hover:scale-110 transition-transform"
+                                 style={{ color: platform.color }}
+                               />
+                             </div>
+                             <span className="text-sm font-medium text-center">{platform.name}</span>
+                           </button>
+                         );
+                       })}
+                     </div>
+                   </div>
+                 </motion.div>
+               </>
+             )}
+           </AnimatePresence>
         </div>
 
         {/* Footer with links */}
